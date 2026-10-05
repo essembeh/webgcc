@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGCC</title>
+<link rel="stylesheet" href="static/vendor/codemirror.min.css">
+<link rel="stylesheet" href="static/vendor/xterm.min.css">
+<style>
+  :root {
+    --code-size: 16px;
+    --bg: #e9ecf1; --panel: #ffffff; --text: #111827; --muted: #4b5563;
+    /* One strong color per panel, readable on a projector. */
+    --editor: #1d4ed8; --compile: #b45309; --run: #047857;
+    --compile-bg: #fffbeb;
+    --term-bg: #0b0f19; --term-fg: #f3f4f6;
+    --ok: #15803d; --err: #b91c1c; --warn: #b45309; --note: #1d4ed8;
+    --err-line: rgba(185, 28, 28, .16); --warn-line: rgba(180, 83, 9, .16);
+    --border: #9ca3af;
+    --active-line: #dbeafe;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1017; --panel: #161b26; --text: #f3f4f6; --muted: #a1a9b8;
+      --editor: #3b82f6; --compile: #f59e0b; --run: #10b981;
+      --compile-bg: #1c1a14;
+      --term-bg: #05070c; --term-fg: #f3f4f6;
+      --ok: #4ade80; --err: #f87171; --warn: #fbbf24; --note: #60a5fa;
+      --err-line: rgba(248, 113, 113, .20); --warn-line: rgba(251, 191, 36, .16);
+      --border: #4b5563;
+    --active-line: #dbeafe;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; padding: 8px 16px;
+    background: var(--panel); border-bottom: 2px solid var(--border);
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header .cmd { color: var(--muted); font-family: ui-monospace, monospace; font-size: 13px; flex: 1; }
+  .keys { color: var(--muted); font-size: 12px; }
+  main {
+    flex: 1; min-height: 0; display: grid; gap: 14px 0; padding: 14px 16px;
+    grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr);
+  }
+  .col { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .panel {
+    --accent: var(--border);
+    background: var(--panel); border: 2px solid var(--accent); border-radius: 8px;
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  }
+  .panel > .head {
+    display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+    background: var(--accent); color: #ffffff; font-weight: 700; font-size: 16px;
+  }
+  .panel > .head .status {
+    margin-left: auto; font-size: 13px; font-weight: 700; padding: 1px 10px; border-radius: 999px;
+    background: rgba(255, 255, 255, .2);
+  }
+  .panel > .head .status:empty { display: none; }
+  .panel > .head .status.ok { background: #ffffff; color: #15803d; }
+  .panel > .head .status.err { background: #ffffff; color: #b91c1c; }
+  .panel > .head .status.warn { background: #ffffff; color: #b45309; }
+  #editor-panel { --accent: var(--editor); flex: 1; }
+  #compile-panel { --accent: var(--compile); flex: 1 1 0; min-height: 90px; }
+  #run-panel { --accent: var(--run); flex: 1.6 1 0; min-height: 120px; }
+  #right-col { gap: 0; }
+  .splitter {
+    flex: 0 0 14px; cursor: row-resize; display: flex; align-items: center; justify-content: center;
+    touch-action: none; user-select: none;
+  }
+  .splitter::before {
+    content: ""; width: 64px; height: 5px; border-radius: 3px; background: var(--border);
+  }
+  .splitter:hover::before, .splitter.dragging::before { background: var(--text); width: 96px; }
+  .splitter.vertical { cursor: col-resize; }
+  .splitter.vertical::before { width: 5px; height: 64px; }
+  .splitter.vertical:hover::before, .splitter.vertical.dragging::before { width: 5px; height: 96px; }
+  body.resizing-row { cursor: row-resize; user-select: none; }
+  body.resizing-col { cursor: col-resize; user-select: none; }
+  .CodeMirror .CodeMirror-activeline-background { background: var(--active-line) !important; }
+  .CodeMirror .CodeMirror-activeline-gutter { background: var(--active-line) !important; }
+  .CodeMirror .CodeMirror-activeline .CodeMirror-linenumber { color: var(--editor) !important; font-weight: 700; }
+  .CodeMirror { flex: 1; height: auto; font-size: var(--code-size); font-family: ui-monospace, "Cascadia Code", monospace; }
+  .diag-gutter { width: 16px; }
+  .diag-marker { font-size: 12px; line-height: 1; cursor: help; padding-left: 3px; }
+  .diag-marker.error { color: var(--err); } .diag-marker.warning { color: var(--warn); }
+  .line-error { background: var(--err-line); } .line-warning { background: var(--warn-line); }
+  .console {
+    flex: 1; margin: 0; padding: 10px 12px; overflow: auto; background: var(--compile-bg);
+    font: calc(var(--code-size) - 1px)/1.45 ui-monospace, "Cascadia Code", monospace;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .console .cmdline { color: var(--muted); }
+  .console .meta { font-weight: 600; }
+  .console .meta.ok { color: var(--ok); } .console .meta.err { color: var(--err); }
+  .console .error { color: var(--err); font-weight: 700; }
+  .console .warning { color: var(--warn); font-weight: 700; }
+  .console .note { color: var(--note); font-weight: 700; }
+  .console a.loc { color: inherit; text-decoration: underline dotted; cursor: pointer; }
+  .console .placeholder { color: var(--muted); }
+  .run-form { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 2px solid var(--accent); }
+  .run-form .suffix { color: var(--muted); font-family: ui-monospace, monospace; white-space: nowrap; font-weight: 600; }
+  .run-form label { color: var(--muted); font-family: ui-monospace, monospace; white-space: nowrap; font-weight: 600; }
+  input[type=text] {
+    flex: 1; min-width: 0; padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px;
+    background: var(--panel); color: var(--text); font: 15px ui-monospace, monospace;
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  #terminal { flex: 1; min-height: 0; background: var(--term-bg); padding: 6px 0 0 8px; }
+  button {
+    --btn: var(--editor);
+    border: 2px solid var(--btn); background: var(--btn); color: #ffffff;
+    border-radius: 6px; padding: 5px 14px; font: inherit; font-weight: 700; cursor: pointer;
+  }
+  button.compile { --btn: var(--compile); }
+  button.run { --btn: var(--run); }
+  button.stop { --btn: var(--err); }
+  button.ghost { background: transparent; color: var(--text); --btn: var(--border); padding: 5px 9px; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.icon-btn {
+    display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 26px; padding: 0;
+    background: rgba(255, 255, 255, .15); border: 2px solid rgba(255, 255, 255, .7); color: #ffffff;
+  }
+  button.icon-btn:hover { background: rgba(255, 255, 255, .35); }
+  button.icon-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round; }
+  .stale { font-size: 13px; font-weight: 600; background: #fde68a; color: #78350f; padding: 1px 8px; border-radius: 999px; }
+  @media (max-width: 900px) {
+    body { height: auto; }
+    main { grid-template-columns: minmax(0, 1fr) !important; }
+    #editor-panel .CodeMirror { height: 60vh; }
+    .console { min-height: 160px; }
+    #terminal { height: 50vh; }
+    header .cmd, .keys { display: none; }
+    #right-col { gap: 14px; }
+    .splitter { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>WebGCC</h1>
+  <span class="cmd"></span>
+  <span class="keys">Ctrl+Enter: run · Ctrl+S: compile</span>
+  <button class="ghost" id="btn-smaller" title="Smaller text">A−</button>
+  <button class="ghost" id="btn-bigger" title="Bigger text">A+</button>
+  <button class="compile" id="btn-compile">Compile</button>
+  <button class="run" id="btn-run">Run</button>
+</header>
+<main>
+  <section class="col" id="left-col">
+    <div class="panel" id="editor-panel">
+      <div class="head">Source code — main.c <span id="stale" style="margin-left: auto"></span>
+        <button class="icon-btn" id="btn-save" title="Download main.c"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v6h8V3"/><rect x="7" y="13" width="10" height="8"/></svg></button>
+        <button class="icon-btn" id="btn-new" title="New empty document (Ctrl+Z to undo)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 12v6M9 15h6"/></svg></button>
+      </div>
+      <textarea id="source"></textarea>
+    </div>
+  </section>
+  <div class="splitter vertical" id="splitter-col" title="Drag to resize (double-click: reset)"></div>
+  <section class="col" id="right-col">
+    <div class="panel" id="compile-panel">
+      <div class="head">Compilation (gcc) <span class="status" id="compile-status"></span></div>
+      <div class="run-form">
+        <label for="cflags" id="gcc-name">gcc</label>
+        <input type="text" id="cflags" placeholder="options (empty = none)" spellcheck="false">
+        <span class="suffix" id="gcc-suffix">main.c -o main</span>
+        <button class="ghost" id="btn-cflags-reset" title="Reset to the default options">↺</button>
+      </div>
+      <pre class="console" id="compile-output"><span class="placeholder">Click <b>Compile</b> to run gcc.</span></pre>
+    </div>
+    <div class="splitter" id="splitter" title="Drag to resize (double-click: reset)"></div>
+    <div class="panel" id="run-panel">
+      <div class="head">Execution (terminal) <span class="status" id="run-status"></span></div>
+      <div class="run-form">
+        <label for="args">./main</label>
+        <input type="text" id="args" placeholder="arguments (optional), e.g. 42 &quot;two words&quot;" spellcheck="false">
+        <button class="stop" id="btn-stop" disabled title="Kill the program (SIGKILL)">Stop</button>
+      </div>
+      <div id="terminal"></div>
+    </div>
+  </section>
+</main>
+
+<script src="static/vendor/codemirror.min.js"></script>
+<script src="static/vendor/codemirror-clike.min.js"></script>
+<script src="static/vendor/codemirror-matchbrackets.min.js"></script>
+<script src="static/vendor/codemirror-closebrackets.min.js"></script>
+<script src="static/vendor/codemirror-active-line.min.js"></script>
+<script src="static/vendor/xterm.min.js"></script>
+<script src="static/vendor/xterm-addon-fit.min.js"></script>
+<script>
+const DEFAULT_SOURCE = `#include <stdio.h>
+
+int main(int argc, char *argv[]) {
+    printf("Hello, World!\\n");
+    for (int i = 1; i < argc; i++) {
+        printf("argv[%d] = %s\\n", i, argv[i]);
+    }
+    int n;
+    printf("Enter a number: ");
+    if (scanf("%d", &n) == 1) {
+        printf("Twice %d is %d\\n", n, 2 * n);
+    }
+    return 0;
+}
+`;
+const COMPILE_MIN_DELAY_MS = 400;
+const DIAG_RE = /^(main\.c):(\d+):(\d+): (fatal error|error|warning|note):/;
+const ANSI = { dim: "\x1b[2m", green: "\x1b[1;32m", red: "\x1b[1;31m", yellow: "\x1b[1;33m", reset: "\x1b[0m" };
+
+const $ = (id) => document.getElementById(id);
+const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const store = {
+  get(key) { try { return localStorage.getItem(key); } catch { return null; } },
+  set(key, value) { try { localStorage.setItem(key, value); } catch { /* storage unavailable */ } },
+};
+const fmtDuration = (s) => s < 1 ? `${Math.round(s * 1000)} ms` : `${s.toFixed(2)} s`;
+
+// --- Font size (projection) ---
+let codeSize = Math.min(32, Math.max(10, +(store.get("webgcc.size") ?? 16) || 16));
+
+// --- Editor ---
+const editor = CodeMirror.fromTextArea($("source"), {
+  mode: "text/x-csrc",
+  theme: "default",
+  lineNumbers: true,
+  indentUnit: 4,
+  tabSize: 4,
+  matchBrackets: true,
+  autoCloseBrackets: true,
+  styleActiveLine: true,
+  gutters: ["CodeMirror-linenumbers", "diag-gutter"],
+  extraKeys: {
+    "Ctrl-Enter": () => run(),
+    "Cmd-Enter": () => run(),
+    "Ctrl-S": () => compile(),
+    "Cmd-S": () => compile(),
+    Tab: (cm) => cm.somethingSelected() ? cm.indentSelection("add") : cm.replaceSelection("    "),
+  },
+});
+editor.setValue(store.get("webgcc.source") ?? DEFAULT_SOURCE);
+// Otherwise the first undo would empty the editor.
+editor.clearHistory();
+$("args").value = store.get("webgcc.args") ?? "";
+$("cflags").value = store.get("webgcc.cflags") ?? "";
+
+// --- Terminal ---
+const term = new Terminal({
+  fontFamily: 'ui-monospace, "Cascadia Code", "DejaVu Sans Mono", monospace',
+  fontSize: codeSize,
+  cursorBlink: true,
+  convertEol: false,
+  scrollback: 5000,
+  theme: { background: "#0b0f19", foreground: "#f3f4f6", cursor: "#10b981" },
+});
+const fit = new FitAddon.FitAddon();
+term.loadAddon(fit);
+term.open($("terminal"));
+term.writeln(`${ANSI.dim}Click Run to compile and start the program in this terminal:${ANSI.reset}`);
+term.writeln(`${ANSI.dim}type for scanf, Ctrl+C to interrupt it, Ctrl+D for end of file.${ANSI.reset}`);
+
+function applySize() {
+  document.documentElement.style.setProperty("--code-size", `${codeSize}px`);
+  editor.refresh();
+  term.options.fontSize = codeSize;
+  refit();
+  store.set("webgcc.size", String(codeSize));
+}
+$("btn-smaller").addEventListener("click", () => { codeSize = Math.max(10, codeSize - 2); applySize(); });
+$("btn-bigger").addEventListener("click", () => { codeSize = Math.min(32, codeSize + 2); applySize(); });
+
+let socket = null;
+function refit() {
+  try { fit.fit(); } catch { return; }
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+  }
+}
+new ResizeObserver(() => refit()).observe($("terminal"));
+new ResizeObserver(() => editor.refresh()).observe($("editor-panel"));
+term.onData((data) => {
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "input", data }));
+});
+
+// --- State ---
+let build = null; // {id, source, cflags}
+let defaultCflags = null;
+let markedLines = [];
+let compiling = false;
+
+function updateStale() {
+  const stale = build && (build.source !== editor.getValue() || build.cflags !== $("cflags").value);
+  $("stale").innerHTML = stale ? '<span class="stale">modified since compilation</span>' : "";
+}
+editor.on("change", () => { store.set("webgcc.source", editor.getValue()); updateStale(); });
+$("btn-save").addEventListener("click", () => {
+  const blob = new Blob([editor.getValue()], { type: "text/x-csrc" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "main.c";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+});
+$("btn-new").addEventListener("click", () => {
+  // setValue is part of the undo history: Ctrl+Z brings the previous code back.
+  editor.setValue("");
+  clearMarkers();
+  editor.focus();
+});
+$("args").addEventListener("input", () => store.set("webgcc.args", $("args").value));
+$("args").addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
+$("cflags").addEventListener("input", () => { store.set("webgcc.cflags", $("cflags").value); updateStale(); });
+$("cflags").addEventListener("keydown", (e) => { if (e.key === "Enter") compile(); });
+$("btn-cflags-reset").addEventListener("click", () => {
+  if (defaultCflags === null) return;
+  $("cflags").value = defaultCflags;
+  store.set("webgcc.cflags", defaultCflags);
+  updateStale();
+});
+
+function updateButtons() {
+  const running = socket !== null;
+  $("btn-compile").disabled = compiling;
+  $("btn-run").disabled = compiling || running;
+  $("btn-stop").disabled = !running;
+}
+
+function setStatus(id, text, kind) {
+  $(id).textContent = text;
+  $(id).className = "status" + (kind ? " " + kind : "");
+}
+
+// --- Compilation ---
+function clearMarkers() {
+  editor.clearGutter("diag-gutter");
+  for (const { line, cls } of markedLines) editor.removeLineClass(line, "background", cls);
+  markedLines = [];
+}
+
+function renderCompileOutput(result) {
+  clearMarkers();
+  const perLine = new Map();
+  const html = result.output.split("\n").map((line) => {
+    const m = DIAG_RE.exec(line);
+    if (!m) return escapeHtml(line);
+    const [prefix, file, row, col, kind] = m;
+    const severity = kind === "note" ? "note" : kind.endsWith("error") ? "error" : "warning";
+    if (severity !== "note") {
+      const entry = perLine.get(+row) ?? { severity, messages: [] };
+      if (severity === "error") entry.severity = "error";
+      entry.messages.push(line.slice(prefix.length).trim());
+      perLine.set(+row, entry);
+    }
+    return `<a class="loc" data-line="${row}" data-col="${col}">${file}:${row}:${col}</a>: `
+      + `<span class="${severity}">${escapeHtml(kind)}:</span>${escapeHtml(line.slice(prefix.length))}`;
+  }).join("\n");
+
+  for (const [row, { severity, messages }] of perLine) {
+    const line = row - 1;
+    if (line < 0 || line >= editor.lineCount()) continue;
+    const marker = document.createElement("div");
+    marker.className = `diag-marker ${severity}`;
+    marker.textContent = "●";
+    marker.title = messages.join("\n");
+    editor.setGutterMarker(line, "diag-gutter", marker);
+    const cls = `line-${severity}`;
+    editor.addLineClass(line, "background", cls);
+    markedLines.push({ line, cls });
+  }
+
+  let meta;
+  if (result.timed_out) meta = `<span class="meta err">[gcc interrupted: timeout]</span>`;
+  else if (result.success) meta = `<span class="meta ok">[compilation succeeded in ${fmtDuration(result.duration)}]</span>`;
+  else meta = `<span class="meta err">[compilation failed, code ${result.returncode}]</span>`;
+  const body = result.output.trim() ? html.replace(/\n+$/, "") + "\n" : "";
+  $("compile-output").innerHTML = `<span class="cmdline">$ ${escapeHtml(result.command)}</span>\n${body}${meta}`;
+}
+
+$("compile-output").addEventListener("click", (e) => {
+  const link = e.target.closest("a.loc");
+  if (!link) return;
+  const pos = { line: +link.dataset.line - 1, ch: Math.max(0, +link.dataset.col - 1) };
+  editor.setCursor(pos);
+  editor.scrollIntoView(pos, 80);
+  editor.focus();
+});
+
+async function compile() {
+  if (compiling) return false;
+  compiling = true;
+  updateButtons();
+  const source = editor.getValue();
+  const cflags = $("cflags").value;
+  setStatus("compile-status", "compiling…");
+  // Wipe the previous result and keep a short pause, so that each compilation is visibly a new one.
+  clearMarkers();
+  const preview = [$("gcc-name").textContent, cflags.trim(), $("gcc-suffix").textContent].filter(Boolean).join(" ");
+  $("compile-output").innerHTML = `<span class="cmdline">$ ${escapeHtml(preview)}</span>\n<span class="meta">compiling…</span>`;
+  try {
+    const [response] = await Promise.all([
+      fetch("api/compile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source, cflags }),
+      }),
+      new Promise((resolve) => setTimeout(resolve, COMPILE_MIN_DELAY_MS)),
+    ]);
+    const result = await response.json();
+    if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : response.statusText);
+    renderCompileOutput(result);
+    build = result.success ? { id: result.build_id, source, cflags } : null;
+    const warnings = (result.output.match(/: warning:/g) || []).length;
+    if (result.success && warnings) setStatus("compile-status", `OK, ${warnings} warning(s)`, "warn");
+    else if (result.success) setStatus("compile-status", "OK", "ok");
+    else setStatus("compile-status", result.timed_out ? "timeout" : "error", "err");
+    return result.success;
+  } catch (error) {
+    build = null;
+    $("compile-output").innerHTML = `<span class="meta err">[server error: ${escapeHtml(error.message)}]</span>`;
+    setStatus("compile-status", "error", "err");
+    return false;
+  } finally {
+    compiling = false;
+    updateStale();
+    updateButtons();
+  }
+}
+
+// --- Execution ---
+function describeExit(msg) {
+  if (msg.timed_out) return { text: "timeout, program killed", ok: false };
+  if (msg.killed) return { text: "stopped by the Stop button", ok: false };
+  if (msg.signal) {
+    const hints = { SIGINT: " (Ctrl+C)", SIGSEGV: " (Segmentation fault)", SIGXCPU: " (CPU time limit)",
+      SIGFPE: " (arithmetic error, division by zero?)", SIGABRT: " (abort)" };
+    return { text: `killed by signal ${msg.signal}${hints[msg.signal] ?? ""}`, ok: false };
+  }
+  return { text: `exit code ${msg.returncode}`, ok: msg.returncode === 0 };
+}
+
+function finishRun(text, kind, label) {
+  const color = kind === "ok" ? ANSI.green : ANSI.red;
+  term.write(`\r\n${color}[${text}]${ANSI.reset}\r\n`);
+  setStatus("run-status", label, kind);
+  socket = null;
+  updateButtons();
+}
+
+async function run() {
+  if (compiling || socket) return;
+  if (!build || build.source !== editor.getValue() || build.cflags !== $("cflags").value) {
+    if (!(await compile())) {
+      term.write(`\r\n${ANSI.red}[not run: compilation failed]${ANSI.reset}\r\n`);
+      setStatus("run-status", "");
+      return;
+    }
+  }
+  refit();
+  const url = new URL("api/run", location.href);
+  url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
+  socket = ws;
+  let finished = false;
+  updateButtons();
+  setStatus("run-status", "running…");
+  term.reset();
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "start", build_id: build.id, args: $("args").value, cols: term.cols, rows: term.rows }));
+    term.focus();
+  };
+  ws.onmessage = (event) => {
+    if (event.data instanceof ArrayBuffer) {
+      term.write(new Uint8Array(event.data));
+      return;
+    }
+    const msg = JSON.parse(event.data);
+    if (msg.type === "started") {
+      term.write(`${ANSI.dim}$ ${msg.command}${ANSI.reset}\r\n`);
+    } else if (msg.type === "exit") {
+      finished = true;
+      const { text, ok } = describeExit(msg);
+      const label = ok ? "OK" : msg.timed_out ? "timeout" : msg.killed ? "stop" : (msg.signal ?? `code ${msg.returncode}`);
+      finishRun(text, ok ? "ok" : "err", label);
+    } else if (msg.type === "error") {
+      finished = true;
+      if (msg.detail.startsWith("Unknown build")) build = null;
+      finishRun(`error: ${msg.detail}`, "err", "error");
+    }
+  };
+  ws.onclose = () => {
+    if (!finished && socket === ws) finishRun("connection to the server lost", "err", "error");
+  };
+}
+
+$("btn-stop").addEventListener("click", () => {
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "kill" }));
+});
+$("btn-compile").addEventListener("click", compile);
+$("btn-run").addEventListener("click", run);
+// --- Splitters: compilation/execution heights, editor/consoles widths ---
+function setRowSplit(ratio) {
+  $("compile-panel").style.flex = ratio === null ? "" : `${ratio} 1 0`;
+  $("run-panel").style.flex = ratio === null ? "" : `${1 - ratio} 1 0`;
+}
+function setColSplit(ratio) {
+  document.querySelector("main").style.gridTemplateColumns =
+    ratio === null ? "" : `minmax(0, ${ratio}fr) 14px minmax(0, ${1 - ratio}fr)`;
+}
+
+function makeSplitter(splitter, { vertical, bounds, apply, key, min, max }) {
+  splitter.addEventListener("pointerdown", (e) => {
+    const [start, end] = bounds();
+    splitter.setPointerCapture(e.pointerId);
+    splitter.classList.add("dragging");
+    document.body.classList.add(vertical ? "resizing-col" : "resizing-row");
+    let ratio = null;
+    const move = (ev) => {
+      const pos = vertical ? ev.clientX : ev.clientY;
+      ratio = Math.min(max, Math.max(min, (pos - start) / (end - start)));
+      apply(ratio);
+    };
+    const up = () => {
+      splitter.removeEventListener("pointermove", move);
+      splitter.classList.remove("dragging");
+      document.body.classList.remove("resizing-col", "resizing-row");
+      if (ratio !== null) store.set(key, String(ratio));
+    };
+    splitter.addEventListener("pointermove", move);
+    splitter.addEventListener("pointerup", up, { once: true });
+    splitter.addEventListener("pointercancel", up, { once: true });
+  });
+  splitter.addEventListener("dblclick", () => {
+    apply(null);
+    store.set(key, "");
+  });
+  const saved = parseFloat(store.get(key) ?? "");
+  if (saved >= min && saved <= max) apply(saved);
+}
+
+makeSplitter($("splitter"), {
+  vertical: false, apply: setRowSplit, key: "webgcc.split", min: 0.1, max: 0.9,
+  bounds: () => [$("compile-panel").getBoundingClientRect().top, $("run-panel").getBoundingClientRect().bottom],
+});
+makeSplitter($("splitter-col"), {
+  vertical: true, apply: setColSplit, key: "webgcc.split-col", min: 0.2, max: 0.8,
+  bounds: () => [$("left-col").getBoundingClientRect().left, $("right-col").getBoundingClientRect().right],
+});
+
+applySize();
+updateButtons();
+fetch("api/config").then((r) => r.json()).then((cfg) => {
+  defaultCflags = cfg.default_cflags;
+  $("gcc-name").textContent = cfg.gcc;
+  $("gcc-suffix").textContent = ["main.c -o main", cfg.ldflags].filter(Boolean).join(" ");
+  if (store.get("webgcc.cflags") === null) $("cflags").value = defaultCflags;
+}).catch(() => {});
+</script>
+</body>
+</html>

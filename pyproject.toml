@@ -1,0 +1,63 @@
+[project]
+name = "webgcc"
+version = "0.1.0"
+description = "Minimal web page to edit a C program, compile it with gcc and run it in a live terminal"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Sébastien MB", email = "seb@essembeh.org" }]
+keywords = ["gcc", "c", "compiler", "education", "terminal", "fastapi"]
+# Distributed as a container image only: PyPI rejects any upload with this classifier.
+classifiers = ["Private :: Do Not Upload"]
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.142.2",
+    "pydantic-settings>=2.15.0",
+    "uvicorn>=0.54.0",
+    "websockets>=17.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/essembeh/webgcc"
+Repository = "https://github.com/essembeh/webgcc"
+Issues = "https://github.com/essembeh/webgcc/issues"
+
+[project.scripts]
+webgcc = "webgcc.main:main"
+
+[build-system]
+requires = ["uv_build>=0.11.21,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.13.1",
+    "mypy>=2.4.0",
+    "pip-audit>=2.10.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.10",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM", "RUF", "ASYNC", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# `assert` is the normal pytest mechanism.
+"tests/**" = ["S101"]
+
+[tool.mypy]
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["webgcc"]
