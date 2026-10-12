@@ -66,6 +66,10 @@ docker-build tag="latest":
 docker-run tag="latest":
     podman run --rm -it -p 127.0.0.1:8000:8000 --pids-limit 256 --memory 1g {{image}}:{{tag}}
 
+# Run the image published by the CI on ghcr.io (latest release, `edge` for main), pulled first
+run-docker tag="latest":
+    podman run --rm -it --pull=always -p 127.0.0.1:8000:8000 --pids-limit 256 --memory 1g {{image}}:{{tag}}
+
 # Bump the version, commit and tag: the CI publishes the image on the tag
 release bump="patch":
     echo "{{bump}}" | grep -E "^(major|minor|patch)$"
