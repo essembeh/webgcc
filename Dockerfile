@@ -39,9 +39,9 @@ RUN uv sync --locked --no-dev --no-editable
 ## Stage: production
 FROM base AS production
 
-# gcc + libc headers to compile the C programs; tini reaps the programs' orphans.
+# gcc + libc headers to compile the C programs, clang-format for the format button; tini reaps the programs' orphans.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc libc6-dev tini \
+ && apt-get install -y --no-install-recommends gcc libc6-dev clang-format tini \
  && rm -rf /var/lib/apt/lists/*
 ENTRYPOINT ["tini", "--"]
 

@@ -26,11 +26,11 @@ The page is then available on http://127.0.0.1:8000.
 $ docker run --rm -p 127.0.0.1:8000:8000 --pids-limit 256 --memory 1g ghcr.io/essembeh/webgcc
 ```
 
-The image embeds `gcc` and the C library headers, nothing else is needed.
+The image embeds `gcc`, the C library headers and `clang-format`, nothing else is needed.
 
 ## With uvx, from the sources
 
-Requirements: Linux (pty), `gcc` and [uv](https://docs.astral.sh/uv/).
+Requirements: Linux (pty), `gcc` and [uv](https://docs.astral.sh/uv/), optionally `clang-format` for the format button.
 
 ```sh
 $ uvx --from git+https://github.com/essembeh/webgcc webgcc
@@ -49,7 +49,8 @@ $ uv run webgcc
 # Features
 
 - **Editor** (CodeMirror): C syntax highlighting, line numbers, highlighted current line, bracket matching,
-  download the source as `main.c`, new empty document (`Ctrl+Z` brings the previous code back)
+  download the source as `main.c`, new empty document, code formatting with `clang-format` (`Ctrl+Z` brings the
+  previous code back)
 - **Compilation**: editable `gcc` options (e.g. remove `-Wall -Wextra` to show what they bring), raw `gcc` output with
   clickable `main.c:LINE:COL` locations, errors and warnings marked in the editor gutter
 - **Execution** in a live terminal (xterm.js + pty):
@@ -83,7 +84,9 @@ Settings are read from environment variables prefixed with `WEBGCC_`:
 | `WEBGCC_CFLAGS` | `["-Wall","-Wextra"]` | Default compiler options, editable in the page |
 | `WEBGCC_LDFLAGS` | `["-lm"]` | Options placed after the source file |
 | `WEBGCC_GCC_LOCALE` | `C.UTF-8` | Locale of `gcc`, English diagnostics are needed to link them to the editor |
-| `WEBGCC_COMPILE_TIMEOUT` | `15` | Compilation timeout, in seconds |
+| `WEBGCC_CLANG_FORMAT` | `clang-format` | Formatter executable, the format button is disabled if it is missing |
+| `WEBGCC_FORMAT_STYLE` | `{BasedOnStyle: LLVM, IndentWidth: 4, ColumnLimit: 100}` | `clang-format --style` value |
+| `WEBGCC_COMPILE_TIMEOUT` | `15` | Compilation (and formatting) timeout, in seconds |
 | `WEBGCC_RUN_TIMEOUT` | `300` | Wall-clock limit of a run, in seconds |
 | `WEBGCC_CPU_LIMIT` | `30` | CPU time limit of a run, in seconds |
 | `WEBGCC_MAX_MEMORY_MB` | `512` | Address space limit of a run |

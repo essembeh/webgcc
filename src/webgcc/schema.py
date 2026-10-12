@@ -19,11 +19,20 @@ class CompileResponse(BaseModel):
     duration: float
 
 
+class FormatRequest(BaseModel):
+    source: str
+
+
+class FormatResponse(BaseModel):
+    source: str
+
+
 class ConfigResponse(BaseModel):
     gcc: str
     default_cflags: str
     ldflags: str
     run_timeout: float
+    formatter: bool
 
 
 TerminalSize = Annotated[int, Field(ge=1, le=1000)]

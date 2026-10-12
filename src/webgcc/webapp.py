@@ -11,8 +11,9 @@ from starlette.requests import HTTPConnection
 
 from . import __version__
 from .builder import Builder, InvalidArgumentsError
+from .formatter import FormatError, FormatterUnavailableError, format_source, formatter_available
 from .live import run_session
-from .schema import CompileRequest, CompileResponse, ConfigResponse
+from .schema import CompileRequest, CompileResponse, ConfigResponse, FormatRequest, FormatResponse
 from .settings import Settings
 from .settings import settings as default_settings
 
@@ -50,6 +51,7 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
             default_cflags=shlex.join(settings.cflags),
             ldflags=shlex.join(settings.ldflags),
             run_timeout=settings.run_timeout,
+            formatter=formatter_available(settings),
         )
 
     @app.post("/api/compile")
@@ -60,6 +62,17 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
             return await builder.compile(payload.source, payload.cflags)
         except InvalidArgumentsError as error:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Invalid gcc options: {error}") from error
+
+    @app.post("/api/format")
+    async def format_code(payload: FormatRequest) -> FormatResponse:
+        if len(payload.source.encode("utf-8")) > settings.max_source_bytes:
+            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Source too large")
+        try:
+            return FormatResponse(source=await format_source(payload.source, settings))
+        except FormatterUnavailableError as error:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(error)) from error
+        except FormatError as error:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Format failed: {error}") from error
 
     @app.websocket("/api/run")
     async def run(ws: WebSocket, builder: BuilderDep) -> None:

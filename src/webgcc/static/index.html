@@ -160,6 +160,7 @@
       <div class="head">Source code — main.c <span id="stale" style="margin-left: auto"></span>
         <button class="icon-btn" id="btn-save" title="Download main.c"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v6h8V3"/><rect x="7" y="13" width="10" height="8"/></svg></button>
         <button class="icon-btn" id="btn-new" title="New empty document (Ctrl+Z to undo)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 12v6M9 15h6"/></svg></button>
+        <button class="icon-btn" id="btn-format" disabled title="Format the code with clang-format (Ctrl+Z to undo)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M8 10h12M8 14h12M4 18h16"/></svg></button>
       </div>
       <textarea id="source"></textarea>
     </div>
@@ -313,6 +314,27 @@ $("btn-new").addEventListener("click", () => {
   // setValue is part of the undo history: Ctrl+Z brings the previous code back.
   editor.setValue("");
   clearMarkers();
+  editor.focus();
+});
+$("btn-format").addEventListener("click", async () => {
+  try {
+    const response = await fetch("api/format", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: editor.getValue() }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : response.statusText);
+    if (result.source !== editor.getValue()) {
+      // Diagnostics markers point to the old line numbers; setValue stays undoable with Ctrl+Z.
+      const cursor = editor.getCursor();
+      clearMarkers();
+      editor.setValue(result.source);
+      editor.setCursor(cursor);
+    }
+  } catch (error) {
+    $("compile-output").innerHTML = `<span class="meta err">[format error: ${escapeHtml(error.message)}]</span>`;
+  }
   editor.focus();
 });
 $("args").addEventListener("input", () => store.set("webgcc.args", $("args").value));
@@ -563,6 +585,8 @@ fetch("api/config").then((r) => r.json()).then((cfg) => {
   $("gcc-name").textContent = cfg.gcc;
   $("gcc-suffix").textContent = ["main.c -o main", cfg.ldflags].filter(Boolean).join(" ");
   if (store.get("webgcc.cflags") === null) $("cflags").value = defaultCflags;
+  $("btn-format").disabled = !cfg.formatter;
+  if (!cfg.formatter) $("btn-format").title = "clang-format is not installed on the server";
 }).catch(() => {});
 </script>
 </body>

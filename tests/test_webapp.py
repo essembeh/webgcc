@@ -1,4 +1,5 @@
 import json
+import shutil
 from collections.abc import Iterator
 from typing import Any
 
@@ -192,4 +193,35 @@ def test_config(client: TestClient) -> None:
         "default_cflags": "-Wall -Wextra",
         "ldflags": "-lm",
         "run_timeout": 2.0,
+        "formatter": shutil.which("clang-format") is not None,
     }
+
+
+needs_clang_format = pytest.mark.skipif(shutil.which("clang-format") is None, reason="clang-format not installed")
+
+
+@needs_clang_format
+def test_format(client: TestClient) -> None:
+    response = client.post("/api/format", json={"source": "int main(void){\nint x=1;\n  return x;}\n"})
+    assert response.status_code == 200
+    assert response.json() == {"source": "int main(void) {\n    int x = 1;\n    return x;\n}\n"}
+
+
+@needs_clang_format
+def test_format_default_source_unchanged(client: TestClient) -> None:
+    index = client.get("/").text
+    source = index.split("const DEFAULT_SOURCE = `", 1)[1].split("`;", 1)[0].replace("\\\\", "\\")
+    assert client.post("/api/format", json={"source": source}).json()["source"] == source
+
+
+@needs_clang_format
+def test_format_invalid_style() -> None:
+    with TestClient(create_app(Settings(format_style="{NotAnOption: 1}"))) as client:
+        response = client.post("/api/format", json={"source": "int main(void) {}\n"})
+    assert response.status_code == 422
+
+
+def test_format_unavailable() -> None:
+    with TestClient(create_app(Settings(clang_format="no-such-clang-format"))) as client:
+        assert not client.get("/api/config").json()["formatter"]
+        assert client.post("/api/format", json={"source": ""}).status_code == 503

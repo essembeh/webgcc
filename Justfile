@@ -12,7 +12,7 @@ check:
     uv run ruff check src tests
     uv run mypy src tests
 
-# Unit tests (needs gcc in PATH) — like the CI job `test`
+# Unit tests (needs gcc in PATH, clang-format optional) — like the CI job `test`
 test pytest_args="":
     uv run -- pytest --cov=webgcc --cov-report=term-missing {{pytest_args}}
 
